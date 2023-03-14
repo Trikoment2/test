@@ -1,35 +1,72 @@
 import logging
 import os
+import requests
 
 from telegram import constants
 from telegram import Update, InlineQueryResultArticle, InputTextMessageContent, BotCommand
 from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, MessageHandler, \
-    filters, InlineQueryHandler, Application
-
+filters, InlineQueryHandler, Application
+from telegram.ext import Filters
+from telegram.ext.updater import Updater
 from pydub import AudioSegment
 from openai_helper import OpenAIHelper
+from flask import Flask, request
 
+app = Flask(__name__)
+
+TOKEN = 'your_bot_token_here'
+URL = f'https://api.telegram.org/bot{TOKEN}/'
 
 class ChatGPT3TelegramBot:
     """
     Class representing a Chat-GPT3 Telegram Bot.
     """
 
-    def __init__(self, config: dict, openai: OpenAIHelper):
-        """
-        Initializes the bot with the given configuration and GPT-3 bot object.
-        :param config: A dictionary containing the bot configuration
-        :param openai: OpenAIHelper object
-        """
+    def __init__(self, config, openai):
         self.config = config
         self.openai = openai
+        self.bot = telegram.Bot(token=self.config['telegram_token'])
+        self.updater = Updater(token=self.config['telegram_token'], use_context=True)
+        self.dispatcher = self.updater.dispatcher
+        self.dispatcher.add_handler(CommandHandler('start', self.start))
+        self.dispatcher.add_handler(MessageHandler(Filters.text & (~Filters.command), self.reply))
         self.commands = [
             BotCommand(command='help', description='Show this help message'),
             BotCommand(command='reset', description='Reset the conversation'),
-            BotCommand(command='image', description='Generate image from prompt (e.g. /image cat)')
+            BotCommand(command='image', description='Generate image from prompt (e.g. /image cat)'),
+            BotCommand(command='getupdates', description='Get the latest updates from the Telegram server')
         ]
-        self.disallowed_message = "Sorry, you are not allowed to use this bot. You can check out the source code at " \
-                                  "https://github.com/n3d1117/chatgpt-telegram-bot"
+        self.dispatcher.add_handler(CommandHandler('help', self.help_command))
+        self.dispatcher.add_handler(CommandHandler('reset', self.reset_command))
+        self.dispatcher.add_handler(CommandHandler('image', self.image_command))
+        self.dispatcher.add_handler(CommandHandler('getupdates', self.get_updates_command))
+        self.updater.start_polling()
+
+    def start(self, update, context):
+        context.bot.send_message(chat_id=update.effective_chat.id, text="I'm a bot, please talk to me!")
+
+    def reply(self, update, context):
+        message = update.message.text
+        response = self.openai.generate_response(message)
+        context.bot.send_message(chat_id=update.effective_chat.id, text=response)
+
+    def help_command(self, update, context):
+        message = "Available commands:\n\n"
+        for command in self.commands:
+            message += f"/{command.command} - {command.description}\n"
+        context.bot.send_message(chat_id=update.effective_chat.id, text=message)
+
+    def reset_command(self, update, context):
+        # Reset the conversation here
+        context.bot.send_message(chat_id=update.effective_chat.id, text="Conversation reset!")
+
+    def image_command(self, update, context):
+        # Generate image from prompt here
+        context.bot.send_message(chat_id=update.effective_chat.id, text="Image generated!")
+
+    def get_updates_command(self, update, context):
+        # Get the latest updates from the Telegram server here
+        context.bot.send_message(chat_id=update.effective_chat.id, text="Updates received!")
 
     async def help(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """
@@ -44,6 +81,32 @@ class ChatGPT3TelegramBot:
                     '\n\n' + \
                     "Open source at https://github.com/n3d1117/chatgpt-telegram-bot"
         await update.message.reply_text(help_text, disable_web_page_preview=True)
+
+    async def get_updates(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """
+        Get the latest updates from the Telegram server.
+        """
+        logging.info('Getting updates...')
+        updates = context.bot.get_updates()
+        for update in updates:
+            logging.debug(f'Received update: {update}')
+
+    def run(self) -> None:
+        """
+        Runs the bot.
+        """
+        application = ApplicationBuilder(constants.TELEGRAM_BOT_API_URL, self.config['bot_token']) \
+            .add_handler(CommandHandler('help', self.help)) \
+            .add_handler(CommandHandler('reset', self.reset)) \
+            .add_handler(CommandHandler('image', self.generate_image)) \
+            .add_handler(CommandHandler('getupdates', self.get_updates)) \
+            .add_handler(MessageHandler(filters.voice, self.handle_voice_message)) \
+            .add_handler(MessageHandler(filters.audio, self.handle_audio_message)) \
+            .add_handler(InlineQueryHandler(self.inline_query)) \
+            .set_default_handler(self.handle_unknown_message) \
+            .build()
+        logging.info('Starting bot...')
+        application.run()
 
     async def reset(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """
@@ -303,3 +366,49 @@ class ChatGPT3TelegramBot:
         application.add_error_handler(self.error_handler)
 
         application.run_polling()
+import requests
+import datetime
+import time
+
+TOKEN = "<YOUR BOT TOKEN>" # replace with your bot token
+URL = "https://api.telegram.org/bot{}/".format(TOKEN)
+
+def get_url(url):
+    response = requests.get(url)
+    content = response.content.decode("utf8")
+    return content
+
+def get_json_from_url(url):
+    content = get_url(url)
+    js = json.loads(content)
+    return js
+
+def get_updates(offset=None):
+    url = URL + "getUpdates?timeout=100"
+    if offset:
+        url += "&offset={}".format(offset)
+    js = get_json_from_url(url)
+    return js
+
+def send_message(text, chat_id):
+    url = URL + "sendMessage?text={}&chat_id={}".format(text, chat_id)
+    get_url(url)
+
+def main():
+    last_update_id = None
+    while True:
+        print("getting updates")
+        updates = get_updates(last_update_id)
+        if len(updates["result"]) > 0:
+            last_update_id = updates["result"][-1]["update_id"] + 1
+            for update in updates["result"]:
+                try:
+                    text = update["message"]["text"]
+                    chat_id = update["message"]["chat"]["id"]
+                    send_message(text, chat_id)
+                except Exception as e:
+                    print(e)
+        time.sleep(0.5)
+
+if __name__ == '__main__':
+    main()
