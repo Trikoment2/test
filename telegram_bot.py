@@ -5,8 +5,8 @@ import requests
 from telegram import constants
 from telegram import Update, InlineQueryResultArticle, InputTextMessageContent, BotCommand
 from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, MessageHandler, \
-filters, InlineQueryHandler, Application
-from telegram.ext import Filters
+InlineQueryHandler, Application
+from telegram.ext.filters import Filters
 from telegram.ext.updater import Updater
 from pydub import AudioSegment
 from openai_helper import OpenAIHelper
@@ -16,6 +16,7 @@ app = Flask(__name__)
 
 TOKEN = 'your_bot_token_here'
 URL = f'https://api.telegram.org/bot{TOKEN}/'
+
 
 class ChatGPT3TelegramBot:
     """
